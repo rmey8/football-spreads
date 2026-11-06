@@ -51,3 +51,54 @@ RLM_POINTS = 2.0            # ...but the line moves toward it = reverse line mov
 EV_WEIGHT = 0.5             # how much +EV vs the sharp line adds to the score
 
 DEFAULT_MIN_SCORE = 1.5
+
+# --------------------------------------------------------------------------- #
+# Player props
+# --------------------------------------------------------------------------- #
+# The Odds API prop market keys -> display names
+PROP_MARKETS = {
+    "player_pass_yds": "Pass Yds",
+    "player_pass_tds": "Pass TDs",
+    "player_pass_completions": "Completions",
+    "player_pass_attempts": "Pass Att",
+    "player_pass_interceptions": "INTs",
+    "player_rush_yds": "Rush Yds",
+    "player_rush_attempts": "Rush Att",
+    "player_receptions": "Receptions",
+    "player_reception_yds": "Rec Yds",
+    "player_rush_reception_yds": "Rush+Rec Yds",
+    "player_anytime_td": "Anytime TD",
+}
+DEFAULT_PROP_MARKETS = ("player_pass_yds", "player_rush_yds", "player_reception_yds",
+                        "player_receptions", "player_anytime_td")
+YES_NO_MARKETS = {"player_anytime_td"}
+
+# Up to 10 bookmakers cost the same as one region. Pinnacle is the sharp anchor;
+# the rest form the consensus and are where you'd actually place the bet.
+DEFAULT_PROP_BOOKS = ("pinnacle,draftkings,fanduel,betmgm,williamhill_us,espnbet,"
+                      "fanatics,betrivers,betonlineag,bovada")
+SHARP_PROP_BOOKS = {"pinnacle", "circasports"}
+
+# Typical standard deviation of each stat around its projection (NFL). Used to
+# turn an over/under price into an implied projection and to price other lines.
+# College stats are more volatile, so they get CFB_SD_MULTIPLIER.
+PROP_SD = {
+    "player_pass_yds": 58.0,
+    "player_pass_tds": 0.95,
+    "player_pass_completions": 4.5,
+    "player_pass_attempts": 5.5,
+    "player_pass_interceptions": 0.8,
+    "player_rush_yds": 22.0,
+    "player_rush_attempts": 4.0,
+    "player_receptions": 1.7,
+    "player_reception_yds": 24.0,
+    "player_rush_reception_yds": 27.0,
+}
+CFB_SD_MULTIPLIER = 1.15
+
+ONE_SIDED_VIG = 0.07     # assumed margin when a book only offers one side (e.g. TD "Yes")
+PROP_MIN_BOOKS = 3       # need at least this many books for a consensus fair line
+PROP_MIN_EV = 0.02       # only list props at least this +EV
+PROP_MOVE_WEIGHT = 0.5
+PROP_DIVERGENCE_WEIGHT = 0.5
+PROP_BUDGET = 100        # default max API credits spent per props ingest

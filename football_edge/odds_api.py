@@ -33,7 +33,11 @@ def fetch_odds(api_key: str, sport: str, regions: str = "us,eu",
         params["bookmakers"] = bookmakers
     else:
         params["regions"] = regions
-    url = f"{ODDS_API_BASE}/sports/{SPORT_KEYS[sport]}/odds?{urlencode(params)}"
+    return _get(f"/sports/{SPORT_KEYS[sport]}/odds", params, timeout)
+
+
+def _get(path: str, params: dict, timeout: int = 30):
+    url = f"{ODDS_API_BASE}{path}?{urlencode(params)}"
     req = Request(url, headers={"User-Agent": "football-edge/0.1"})
     try:
         with urlopen(req, timeout=timeout) as resp:
@@ -41,10 +45,60 @@ def fetch_odds(api_key: str, sport: str, regions: str = "us,eu",
             quota = {h: resp.headers.get(h) for h in QUOTA_HEADERS}
     except HTTPError as exc:
         body = exc.read().decode(errors="replace")[:300]
-        hint = {401: "invalid or missing API key", 422: "bad request parameters",
+        hint = {401: "invalid or missing API key", 404: "event not found",
+                422: "bad request parameters (market not offered for this sport?)",
                 429: "rate limited / out of credits"}.get(exc.code, "")
         raise OddsAPIError(f"HTTP {exc.code} {hint}: {body}") from exc
     return data, quota
+
+
+def fetch_events(api_key: str, sport: str, start: datetime, end: datetime) -> tuple[list, dict]:
+    """List upcoming events (free: costs no credits)."""
+    fmt = "%Y-%m-%dT%H:%M:%SZ"
+    return _get(f"/sports/{SPORT_KEYS[sport]}/events", {
+        "apiKey": api_key,
+        "commenceTimeFrom": start.astimezone(timezone.utc).strftime(fmt),
+        "commenceTimeTo": end.astimezone(timezone.utc).strftime(fmt),
+    })
+
+
+def fetch_event_props(api_key: str, sport: str, event_id: str, markets: str,
+                      bookmakers: str | None = None, regions: str = "us") -> tuple[dict, dict]:
+    """Player-prop odds for one event. Cost: (#markets returned) x (#regions) credits;
+    up to 10 `bookmakers` count as one region."""
+    params = {"apiKey": api_key, "markets": markets, "oddsFormat": "american",
+              "dateFormat": "iso"}
+    if bookmakers:
+        params["bookmakers"] = bookmakers
+    else:
+        params["regions"] = regions
+    return _get(f"/sports/{SPORT_KEYS[sport]}/events/{event_id}/odds", params)
+
+
+def normalize_props(event: dict, sport: str, fetched_at: str) -> list[dict]:
+    """Flatten one event-odds response into prop snapshot rows."""
+    rows = []
+    for bm in event.get("bookmakers", []):
+        for mkt in bm.get("markets", []):
+            for oc in mkt.get("outcomes", []):
+                player = oc.get("description")
+                if not player:
+                    continue
+                rows.append({
+                    "fetched_at": fetched_at,
+                    "sport": sport,
+                    "event_id": event["id"],
+                    "commence_time": event["commence_time"],
+                    "home": event["home_team"],
+                    "away": event["away_team"],
+                    "book": bm["key"],
+                    "market": mkt["key"],
+                    "player": player,
+                    "outcome": oc["name"],
+                    "price": oc["price"],
+                    "point": oc.get("point"),
+                })
+    return rows
 
 
 def normalize(events: list, sport: str, fetched_at: str | None = None) -> list[dict]:

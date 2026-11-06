@@ -111,3 +111,73 @@ def generate(seed: int = 7) -> tuple[list[dict], list[dict]]:
                                    side="home" if market == "spreads" else "over",
                                    bets_pct=round(bets), money_pct=round(money)))
     return rows, splits
+
+
+# --------------------------------------------------------------------------- #
+# Simulated player props
+# --------------------------------------------------------------------------- #
+PROP_BOOKS = ["pinnacle", "draftkings", "fanduel", "betmgm", "williamhill_us", "espnbet"]
+# (role, market, nfl projection, cfb projection)
+PROP_TEMPLATE = [
+    ("QB1", "player_pass_yds", 245, 255),
+    ("RB1", "player_rush_yds", 68, 82),
+    ("WR1", "player_reception_yds", 72, 76),
+    ("WR1", "player_receptions", 5.6, 5.4),
+    ("RB1", "player_anytime_td", 0.42, 0.48),
+    ("WR1", "player_anytime_td", 0.36, 0.38),
+]
+
+
+def generate_props(seed: int = 7) -> list[dict]:
+    """SIMULATED prop snapshots. Player names are placeholders like 'Chiefs WR1'.
+    Some props get a stale/off-market book, some get a sharp move that rec books lag."""
+    rng = random.Random(seed + 1000)
+    now = datetime.now(timezone.utc).replace(minute=0, second=0, microsecond=0)
+    rows = []
+    for sport, games in (("nfl", NFL_GAMES), ("cfb", CFB_GAMES)):
+        for gi, (home, away, _, _) in enumerate(games):
+            event_id = f"demo-{sport}-{gi}"
+            kickoff = (now + timedelta(days=1 + gi % 3, hours=17)).isoformat()
+            for team in (home, away):
+                nick = team.split()[-1]
+                for role, market, nfl_mu, cfb_mu in PROP_TEMPLATE:
+                    player = f"{nick} {role}"
+                    yes_no = market in C.YES_NO_MARKETS
+                    mu = (nfl_mu if sport == "nfl" else cfb_mu) * rng.uniform(0.8, 1.2)
+                    sd = None if yes_no else C.PROP_SD[market] * (
+                        C.CFB_SD_MULTIPLIER if sport == "cfb" else 1)
+                    scale = 0.04 if yes_no else sd * 0.12
+                    # scenario: news-driven move (sharp first), one stale book, or quiet
+                    scenario = rng.choice(["move_up", "move_down", "stale", "quiet", "quiet"])
+                    direction = {"move_up": 1, "move_down": -1, "stale": rng.choice([1, -1])}
+                    move = direction.get(scenario, 0) * scale * 1.5
+                    stale_book = rng.choice(PROP_BOOKS[1:])
+                    noise = {b: rng.gauss(0, scale * 0.4) for b in PROP_BOOKS}
+                    for k, hrs in enumerate(SNAPSHOT_HOURS_AGO):
+                        ts = (now - timedelta(hours=hrs)).isoformat()
+                        for book in PROP_BOOKS:
+                            if book == "pinnacle":
+                                f = min(1.0, k / 2)
+                            elif scenario == "stale" and book == stale_book:
+                                f = 0.0
+                            else:
+                                f = max(0.0, (k - 1) / 2)
+                            v = mu + noise[book] + move * f
+                            vig = 0.03 if book == "pinnacle" else 0.05
+                            base = dict(fetched_at=ts, sport=sport, event_id=event_id,
+                                        commence_time=kickoff, home=home, away=away,
+                                        book=book, market=market, player=player)
+                            if yes_no:
+                                p = min(max(v, 0.05), 0.9)
+                                yes = prob_to_american(min(p * (1 + vig * 1.6), 0.97))
+                                rows.append({**base, "outcome": "Yes", "price": yes, "point": None})
+                                if book == "pinnacle":
+                                    no = prob_to_american((1 - p) * (1 + vig))
+                                    rows.append({**base, "outcome": "No", "price": no, "point": None})
+                                continue
+                            line = (int(v) + 0.5) if v >= 1 else 0.5
+                            p = 1 - NormalDist(v, sd).cdf(line)
+                            o, u = _price_pair(p, vig)
+                            rows.append({**base, "outcome": "Over", "price": o, "point": line})
+                            rows.append({**base, "outcome": "Under", "price": u, "point": line})
+    return rows

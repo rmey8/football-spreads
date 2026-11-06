@@ -22,10 +22,29 @@ CREATE TABLE IF NOT EXISTS snapshots (
 );
 CREATE INDEX IF NOT EXISTS idx_snap_event
     ON snapshots (sport, event_id, market, book, fetched_at);
+
+CREATE TABLE IF NOT EXISTS prop_snapshots (
+    fetched_at    TEXT NOT NULL,
+    sport         TEXT NOT NULL,
+    event_id      TEXT NOT NULL,
+    commence_time TEXT NOT NULL,
+    home          TEXT NOT NULL,
+    away          TEXT NOT NULL,
+    book          TEXT NOT NULL,
+    market        TEXT NOT NULL,
+    player        TEXT NOT NULL,
+    outcome       TEXT NOT NULL,
+    price         REAL NOT NULL,
+    point         REAL
+);
+CREATE INDEX IF NOT EXISTS idx_prop_event
+    ON prop_snapshots (sport, event_id, market, player, book, fetched_at);
 """
 
 COLUMNS = ("fetched_at", "sport", "event_id", "commence_time", "home", "away",
            "book", "market", "outcome", "price", "point")
+PROP_COLUMNS = ("fetched_at", "sport", "event_id", "commence_time", "home", "away",
+                "book", "market", "player", "outcome", "price", "point")
 
 
 def connect(path: Path) -> sqlite3.Connection:
@@ -37,19 +56,28 @@ def connect(path: Path) -> sqlite3.Connection:
     return conn
 
 
-def insert_rows(conn: sqlite3.Connection, rows: list[dict]) -> int:
+def _insert(conn, table, cols, rows) -> int:
     conn.executemany(
-        f"INSERT INTO snapshots ({', '.join(COLUMNS)}) "
-        f"VALUES ({', '.join('?' for _ in COLUMNS)})",
-        [tuple(r[c] for c in COLUMNS) for r in rows],
+        f"INSERT INTO {table} ({', '.join(cols)}) VALUES ({', '.join('?' for _ in cols)})",
+        [tuple(r[c] for c in cols) for r in rows],
     )
     conn.commit()
     return len(rows)
 
 
+def insert_rows(conn: sqlite3.Connection, rows: list[dict]) -> int:
+    return _insert(conn, "snapshots", COLUMNS, rows)
+
+
+def insert_prop_rows(conn: sqlite3.Connection, rows: list[dict]) -> int:
+    return _insert(conn, "prop_snapshots", PROP_COLUMNS, rows)
+
+
 def load_rows(conn: sqlite3.Connection, sport: str | None = None,
-              starts_after: str | None = None) -> list[dict]:
-    sql = "SELECT * FROM snapshots WHERE 1=1"
+              starts_after: str | None = None, table: str = "snapshots") -> list[dict]:
+    if table not in ("snapshots", "prop_snapshots"):
+        raise ValueError(table)
+    sql = f"SELECT * FROM {table} WHERE 1=1"
     args: list = []
     if sport:
         sql += " AND sport = ?"
@@ -59,3 +87,8 @@ def load_rows(conn: sqlite3.Connection, sport: str | None = None,
         args.append(starts_after)
     sql += " ORDER BY fetched_at"
     return [dict(r) for r in conn.execute(sql, args)]
+
+
+def load_prop_rows(conn: sqlite3.Connection, sport: str | None = None,
+                   starts_after: str | None = None) -> list[dict]:
+    return load_rows(conn, sport, starts_after, table="prop_snapshots")
